@@ -28,3 +28,13 @@ executable linklater-lambdabot
                      , wuss
                      , lens
                      , aeson
+                     , lambdabot-core
+                     , lambdabot-haskell-plugins
+                     , lambdabot-irc-plugins
+                     , lambdabot-misc-plugins
+                     , lambdabot-novelty-plugins
+                     , lambdabot-reference-plugins
+                     , lambdabot-social-plugins
+                     , deepseq
+                     , parsec
+                     , silently

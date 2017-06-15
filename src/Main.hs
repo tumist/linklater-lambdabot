@@ -1,8 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Main where
 
+import System.IO.Silently (capture)
 import System.Environment (lookupEnv)
 import Control.Lens hiding ((.=))
 import Control.Monad (void, forever, guard)
@@ -20,6 +22,10 @@ import Data.Maybe (isJust)
 import Data.Monoid ((<>))
 import URI.ByteString
 import qualified Data.Text as T
+import Text.Parsec (parse)
+import Lambdabot.Main
+import Command
+import Modules (modulesInfo)
 
 type Bytes = ByteString
 
@@ -46,7 +52,7 @@ instance FromJSON Line where
       isReply :: Maybe Int -> Bool
       isReply = isJust
 
--- |Connects the websocket and delivers messages
+-- | Connects the websocket and delivers messages
 messenger :: URI -> Chan Speech -> Chan Bytes -> IO ()
 messenger uri outbox inbox =
   case (uri ^? authorityL . _Just . authorityHostL . hostBSL . utf8 . unpacked,
@@ -72,7 +78,7 @@ messenger uri outbox inbox =
           speech <- readChan outbox
           WS.sendTextData conn (encode (Speech' speech 1))
 
--- |Attempts to decode inbox :: Chan Bytes
+-- | Attempts to decode inbox :: Chan Bytes
 -- to whatever FromJSON object you expect from Slack
 withInbox :: FromJSON a => Chan Bytes -> (a -> IO b) -> IO ()
 withInbox inbox cont = do
@@ -85,17 +91,32 @@ withInbox inbox cont = do
       Right o ->
         void (cont o)
 
--- |This "bot" just prints out every received message
+-- | This "bot" just prints out every received message
 showStdOut :: Chan Bytes -> IO ()
 showStdOut inbox = do
   chan <- dupChan inbox
   void . forkIO . forever $ readChan chan >>= print
 
--- |This bot always replies "Hello World!"
+-- | This bot always replies "Hello World!"
 helloWorldBot :: Chan Bytes -> Chan Speech -> IO ()
 helloWorldBot inbox outbox = do
   withInbox inbox $ \line ->
     writeChan outbox (Speech line "Hello World!")
+
+-- |
+lambdaBot :: Chan Bytes -> Chan Speech -> IO ()
+lambdaBot inbox outbox = do
+  withInbox inbox $ \(line :: Line) -> do
+    let command = (line ^. truth)
+    case parse parseCommand "" command of
+      Left _ -> return ()
+      Right cmd -> do
+        let startupCmds = case cmd of
+              Eval e -> "run " <> e
+              Type t -> "type " <> t
+        let request = void $ lambdabotMain modulesInfo [onStartupCmds ==> [T.unpack startupCmds]]
+        (response, _) <- capture request
+        writeChan outbox (Speech line (T.pack response))
 
 setup :: URI -> IO ()
 setup uri = do
@@ -107,8 +128,7 @@ setup uri = do
   -- Slack communcations will be set up and run in a separate thread
   forkIO $ messenger uri outbox inbox
   -- Bots operate by listening to inbox and responding to outbox
-  showStdOut inbox
---  helloWorldBot inbox outbox
+  lambdaBot inbox outbox
   -- Our Work is Never Over
   void . forever $ readChan inbox
 
