@@ -88,7 +88,8 @@ withInbox inbox cont = do
 -- |This "bot" just prints out every received message
 showStdOut :: Chan Bytes -> IO ()
 showStdOut inbox = do
-  withInbox inbox $ \(line :: Line) -> print line
+  chan <- dupChan inbox
+  void . forkIO . forever $ readChan chan >>= print
 
 -- |This bot always replies "Hello World!"
 helloWorldBot :: Chan Bytes -> Chan Speech -> IO ()
@@ -107,7 +108,7 @@ setup uri = do
   forkIO $ messenger uri outbox inbox
   -- Bots operate by listening to inbox and responding to outbox
   showStdOut inbox
-  helloWorldBot inbox outbox
+--  helloWorldBot inbox outbox
   -- Our Work is Never Over
   void . forever $ readChan inbox
 
@@ -115,7 +116,7 @@ main :: IO ()
 main = do
   -- Given API token startRTM will authenticate with slack and give
   -- webscoket communication endpoint
-  Just token <- fmap (APIToken . T.pack) <$> lookupEnv "API_TOKEN"
+  Just token <- fmap (APIToken . T.pack) <$> lookupEnv "SLACK_API_TOKEN"
   rtm <- runExceptT (startRTM token)
   case rtm of
     Left e -> error (show e)
